@@ -10,5 +10,6 @@ class MainViewModel @Inject constructor(
     private val sessionManager: SessionManager,
 ) : ViewModel() {
     val currentUser = sessionManager.currentUser
+    val needsOnboarding = sessionManager.needsOnboarding
     fun logout() = sessionManager.endSession()
 }

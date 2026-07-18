@@ -10,4 +10,5 @@ interface AccessRepository {
     suspend fun revoke(grantId: String): Result<AccessGrant>
     suspend fun verifyGrant(grantId: String): Result<ScopedData>
     suspend fun readAuditLog(patientId: String): Result<List<AuditEntry>>
+    suspend fun getActiveGrants(granteeId: String): Result<List<AccessGrant>>
 }

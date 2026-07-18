@@ -17,6 +17,13 @@ class AuthRepositoryImpl @Inject constructor(
             Result.Error(e.message ?: "Login failed", e)
         }
 
+    override suspend fun register(name: String, email: String, password: String): Result<User> =
+        try {
+            Result.Success(remote.register(name, email, password))
+        } catch (e: Exception) {
+            Result.Error(e.message ?: "Registration failed", e)
+        }
+
     override suspend fun logout() {
         remote.logout()
     }

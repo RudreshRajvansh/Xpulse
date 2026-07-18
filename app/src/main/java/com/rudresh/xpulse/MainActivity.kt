@@ -16,7 +16,10 @@ import com.rudresh.xpulse.core.domain.model.Role
 import com.rudresh.xpulse.feature.auth.LoginScreen
 import com.rudresh.xpulse.feature.doctor.DoctorApp
 import com.rudresh.xpulse.feature.home.HomeScreen
+import com.rudresh.xpulse.feature.patient.OnboardingScreen
 import com.rudresh.xpulse.feature.patient.PatientApp
+import com.rudresh.xpulse.feature.pharmacy.PharmacyApp
+import com.rudresh.xpulse.feature.reception.ReceptionApp
 import com.rudresh.xpulse.ui.theme.XpulseTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -41,13 +44,18 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun Root(viewModel: MainViewModel = hiltViewModel()) {
     val user by viewModel.currentUser.collectAsState()
+    val needsOnboarding by viewModel.needsOnboarding.collectAsState()
     val current = user
     if (current == null) {
         LoginScreen()
+    } else if (Role.PATIENT in current.roles && needsOnboarding) {
+        OnboardingScreen()
     } else {
         when {
             Role.PATIENT in current.roles -> PatientApp(user = current, onLogout = viewModel::logout)
             Role.DOCTOR in current.roles -> DoctorApp(user = current, onLogout = viewModel::logout)
+            Role.PHARMACY in current.roles -> PharmacyApp(user = current, onLogout = viewModel::logout)
+            Role.RECEPTIONIST in current.roles -> ReceptionApp(user = current, onLogout = viewModel::logout)
             else -> HomeScreen(user = current, onLogout = viewModel::logout)
         }
     }

@@ -24,4 +24,18 @@ class RecordRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             Result.Error(e.message ?: "Could not issue prescription", e)
         }
+
+    override suspend fun getPendingPrescriptions(): Result<List<Prescription>> =
+        try {
+            Result.Success(remote.getPendingPrescriptions())
+        } catch (e: Exception) {
+            Result.Error(e.message ?: "Could not load prescriptions", e)
+        }
+
+    override suspend fun fulfillPrescription(prescriptionId: String): Result<Prescription> =
+        try {
+            Result.Success(remote.fulfillPrescription(prescriptionId))
+        } catch (e: Exception) {
+            Result.Error(e.message ?: "Could not fulfill prescription", e)
+        }
 }

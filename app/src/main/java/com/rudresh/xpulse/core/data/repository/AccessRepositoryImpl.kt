@@ -39,4 +39,11 @@ class AccessRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             Result.Error(e.message ?: "Could not load audit log", e)
         }
+
+    override suspend fun getActiveGrants(granteeId: String): Result<List<AccessGrant>> =
+        try {
+            Result.Success(remote.getActiveGrants(granteeId))
+        } catch (e: Exception) {
+            Result.Error(e.message ?: "Could not load access requests", e)
+        }
 }
