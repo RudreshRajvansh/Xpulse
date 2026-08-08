@@ -8,6 +8,7 @@ import com.rudresh.xpulse.core.domain.model.Medicine
 import com.rudresh.xpulse.core.domain.model.ScopedData
 import com.rudresh.xpulse.core.domain.usecase.GetActiveGrantsUseCase
 import com.rudresh.xpulse.core.domain.usecase.IssuePrescriptionUseCase
+import com.rudresh.xpulse.core.domain.usecase.OrderLabTestUseCase
 import com.rudresh.xpulse.core.domain.usecase.VerifyAccessUseCase
 import com.rudresh.xpulse.core.session.SessionManager
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -26,6 +27,8 @@ data class DoctorState(
     val error: String? = null,
     val issuing: Boolean = false,
     val issuedMessage: String? = null,
+    val orderingLab: Boolean = false,
+    val labMessage: String? = null,
 )
 
 @HiltViewModel
@@ -33,6 +36,7 @@ class DoctorViewModel @Inject constructor(
     private val getActiveGrantsUseCase: GetActiveGrantsUseCase,
     private val verifyAccessUseCase: VerifyAccessUseCase,
     private val issuePrescriptionUseCase: IssuePrescriptionUseCase,
+    private val orderLabTestUseCase: OrderLabTestUseCase,
     private val sessionManager: SessionManager,
 ) : ViewModel() {
 
@@ -66,8 +70,29 @@ class DoctorViewModel @Inject constructor(
     }
 
     fun closePatient() {
-        _state.value = _state.value.copy(scoped = null, patientId = null, error = null, issuedMessage = null)
+        _state.value = _state.value.copy(
+            scoped = null,
+            patientId = null,
+            error = null,
+            issuedMessage = null,
+            labMessage = null,
+        )
         loadRequests()
+    }
+
+    fun orderLabTest(testName: String) {
+        val pid = _state.value.patientId ?: return
+        if (_state.value.orderingLab || testName.isBlank()) return
+        viewModelScope.launch {
+            _state.value = _state.value.copy(orderingLab = true, labMessage = null)
+            when (val r = orderLabTestUseCase(pid, testName, doctorId)) {
+                is Result.Success -> _state.value = _state.value.copy(
+                    orderingLab = false,
+                    labMessage = "${r.data.testName} sent to diagnostics",
+                )
+                is Result.Error -> _state.value = _state.value.copy(orderingLab = false, labMessage = r.message)
+            }
+        }
     }
 
     fun issuePrescription(name: String, dose: String, frequency: String) {

@@ -4,21 +4,35 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.rudresh.xpulse.core.common.Result
 import com.rudresh.xpulse.core.domain.model.AuditEntry
+import com.rudresh.xpulse.core.domain.model.LabOrder
+import com.rudresh.xpulse.core.domain.model.MedicalReport
 import com.rudresh.xpulse.core.domain.model.Medicine
+import com.rudresh.xpulse.core.domain.model.PatientProfile
+import com.rudresh.xpulse.core.domain.model.SupportTicket
+import com.rudresh.xpulse.core.domain.usecase.AddReportUseCase
 import com.rudresh.xpulse.core.domain.usecase.CheckInUseCase
 import com.rudresh.xpulse.core.domain.usecase.GetAuditLogUseCase
 import com.rudresh.xpulse.core.domain.usecase.GetMedicinesUseCase
+import com.rudresh.xpulse.core.domain.usecase.GetPatientLabOrdersUseCase
+import com.rudresh.xpulse.core.domain.usecase.GetProfileUseCase
+import com.rudresh.xpulse.core.domain.usecase.GetReportsUseCase
+import com.rudresh.xpulse.core.domain.usecase.GetUserTicketsUseCase
+import com.rudresh.xpulse.core.domain.usecase.RaiseTicketUseCase
+import com.rudresh.xpulse.core.domain.usecase.SaveProfileUseCase
 import com.rudresh.xpulse.core.domain.usecase.GrantAccessUseCase
 import com.rudresh.xpulse.core.domain.usecase.RevokeAccessUseCase
+import com.rudresh.xpulse.core.domain.model.Recommendation
+import com.rudresh.xpulse.core.domain.usecase.GetRecommendationsUseCase
+import com.rudresh.xpulse.core.ocr.PrescriptionOcr
+import com.rudresh.xpulse.core.reminder.ReminderScheduler
+import com.rudresh.xpulse.core.security.SecurityPrefs
 import com.rudresh.xpulse.core.session.SessionManager
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-import kotlin.math.abs
 
 data class Reminder(
     val id: String,
@@ -59,20 +73,26 @@ data class PatientState(
     val heightCm: String = "",
     val weightKg: String = "",
     val medicalConditions: Set<String> = emptySet(),
+    val labOrders: List<LabOrder> = emptyList(),
+    val labOrdersLoading: Boolean = false,
+    val tickets: List<SupportTicket> = emptyList(),
+    val ticketsLoading: Boolean = false,
+    val raisingTicket: Boolean = false,
+    val ticketMessage: String? = null,
     val abhaConnected: Boolean = false,
     val insuranceConnected: Boolean = false,
     val fingerprintLockEnabled: Boolean = false,
+    val reports: List<MedicalReport> = emptyList(),
+    val reportsLoading: Boolean = false,
+    val uploadingReport: Boolean = false,
+    val checkInError: String? = null,
+    val remindersScheduled: Boolean = false,
+    val extractionNote: String? = null,
+    val recommendations: List<Recommendation> = emptyList(),
+    val recommendationsLoading: Boolean = false,
 )
 
 private val REMINDER_OFFSETS_MINUTES = listOf(-190L, -55L, 20L, 95L, 240L, 400L)
-
-private val EXTRACTION_POOL = listOf(
-    Triple("Amoxicillin 500mg", "1 capsule", "Three times daily"),
-    Triple("Paracetamol 650mg", "1 tablet", "As needed"),
-    Triple("Cetirizine 10mg", "1 tablet", "Once daily"),
-    Triple("Azithromycin 250mg", "1 tablet", "Once daily"),
-    Triple("Pantoprazole 40mg", "1 tablet", "Once daily · before breakfast"),
-)
 
 @HiltViewModel
 class PatientViewModel @Inject constructor(
@@ -81,6 +101,17 @@ class PatientViewModel @Inject constructor(
     private val revokeAccess: RevokeAccessUseCase,
     private val getAuditLog: GetAuditLogUseCase,
     private val checkInUseCase: CheckInUseCase,
+    private val getPatientLabOrders: GetPatientLabOrdersUseCase,
+    private val getUserTickets: GetUserTicketsUseCase,
+    private val raiseTicketUseCase: RaiseTicketUseCase,
+    private val getProfileUseCase: GetProfileUseCase,
+    private val saveProfileUseCase: SaveProfileUseCase,
+    private val getReportsUseCase: GetReportsUseCase,
+    private val addReportUseCase: AddReportUseCase,
+    private val reminderScheduler: ReminderScheduler,
+    private val prescriptionOcr: PrescriptionOcr,
+    private val getRecommendations: GetRecommendationsUseCase,
+    private val securityPrefs: SecurityPrefs,
     private val sessionManager: SessionManager,
 ) : ViewModel() {
 
@@ -90,7 +121,105 @@ class PatientViewModel @Inject constructor(
     private val patientId: String get() = sessionManager.currentUser.value?.id.orEmpty()
 
     init {
+        _state.value = _state.value.copy(fingerprintLockEnabled = securityPrefs.lockEnabled.value)
         loadMedicines()
+        loadLabOrders()
+        loadProfile()
+        loadReports()
+    }
+
+    fun loadProfile() {
+        viewModelScope.launch {
+            when (val r = getProfileUseCase(patientId)) {
+                is Result.Success -> _state.value = _state.value.copy(
+                    age = r.data.age,
+                    city = r.data.city,
+                    heightCm = r.data.heightCm,
+                    weightKg = r.data.weightKg,
+                    medicalConditions = r.data.conditions,
+                    abhaConnected = r.data.abhaConnected,
+                    insuranceConnected = r.data.insuranceConnected,
+                )
+                is Result.Error -> _state.value = _state.value.copy(message = r.message)
+            }
+        }
+    }
+
+    private fun persistProfile(onboarded: Boolean = true) {
+        val s = _state.value
+        viewModelScope.launch {
+            saveProfileUseCase(
+                patientId,
+                PatientProfile(
+                    age = s.age,
+                    city = s.city,
+                    heightCm = s.heightCm,
+                    weightKg = s.weightKg,
+                    conditions = s.medicalConditions,
+                    abhaConnected = s.abhaConnected,
+                    insuranceConnected = s.insuranceConnected,
+                    onboarded = onboarded,
+                ),
+            )
+        }
+    }
+
+    fun loadRecommendations() {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(recommendationsLoading = true)
+            when (val r = getRecommendations(patientId)) {
+                is Result.Success -> _state.value = _state.value.copy(recommendations = r.data, recommendationsLoading = false)
+                is Result.Error -> _state.value = _state.value.copy(message = r.message, recommendationsLoading = false)
+            }
+        }
+    }
+
+    fun loadReports() {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(reportsLoading = true)
+            when (val r = getReportsUseCase(patientId)) {
+                is Result.Success -> _state.value = _state.value.copy(reports = r.data, reportsLoading = false)
+                is Result.Error -> _state.value = _state.value.copy(message = r.message, reportsLoading = false)
+            }
+        }
+    }
+
+    fun addReport(category: String, label: String, uri: String) {
+        if (_state.value.uploadingReport) return
+        viewModelScope.launch {
+            _state.value = _state.value.copy(uploadingReport = true)
+            when (val r = addReportUseCase(patientId, category, label, uri)) {
+                is Result.Success -> _state.value = _state.value.copy(
+                    uploadingReport = false,
+                    reports = listOf(r.data) + _state.value.reports,
+                    message = "${r.data.category} report added",
+                )
+                is Result.Error -> _state.value = _state.value.copy(uploadingReport = false, message = r.message)
+            }
+        }
+    }
+
+    fun scheduleReminderNotifications() {
+        if (_state.value.remindersScheduled) return
+        _state.value.reminders.forEachIndexed { index, reminder ->
+            reminderScheduler.schedule(
+                requestCode = index + 1,
+                medicineName = reminder.medicineName,
+                dose = reminder.dose,
+                atMillis = reminder.atMillis,
+            )
+        }
+        _state.value = _state.value.copy(remindersScheduled = true)
+    }
+
+    fun loadLabOrders() {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(labOrdersLoading = true)
+            when (val r = getPatientLabOrders(patientId)) {
+                is Result.Success -> _state.value = _state.value.copy(labOrders = r.data, labOrdersLoading = false)
+                is Result.Error -> _state.value = _state.value.copy(message = r.message, labOrdersLoading = false)
+            }
+        }
     }
 
     fun loadMedicines() {
@@ -186,19 +315,23 @@ class PatientViewModel @Inject constructor(
         }
     }
 
-    fun checkIn() {
+    fun checkIn(token: String) {
         if (_state.value.scanning) return
+        if (token.isBlank()) {
+            _state.value = _state.value.copy(checkInError = "Enter the code shown at reception")
+            return
+        }
         viewModelScope.launch {
-            _state.value = _state.value.copy(scanning = true)
-            when (val r = checkInUseCase(patientId)) {
+            _state.value = _state.value.copy(scanning = true, checkInError = null)
+            when (val r = checkInUseCase(patientId, token)) {
                 is Result.Success -> _state.value = _state.value.copy(scanning = false, checkedIn = true)
-                is Result.Error -> _state.value = _state.value.copy(scanning = false, message = r.message)
+                is Result.Error -> _state.value = _state.value.copy(scanning = false, checkInError = r.message)
             }
         }
     }
 
     fun resetCheckIn() {
-        _state.value = _state.value.copy(checkedIn = false)
+        _state.value = _state.value.copy(checkedIn = false, checkInError = null)
     }
 
     fun onImagePicked(uriString: String) {
@@ -207,16 +340,43 @@ class PatientViewModel @Inject constructor(
             extracting = true,
             draftMedicines = emptyList(),
             addedMessage = null,
+            extractionNote = null,
         )
         viewModelScope.launch {
-            delay(1600)
-            val seed = abs(uriString.hashCode())
-            val count = 2 + (seed % 2)
-            val drafts = (0 until count).map { i ->
-                val (name, dose, frequency) = EXTRACTION_POOL[(seed + i) % EXTRACTION_POOL.size]
-                DraftMedicine(id = "draft_${seed}_$i", name = name, dose = dose, frequency = frequency)
+            val outcome = runCatching {
+                val lines = prescriptionOcr.readLines(uriString)
+                prescriptionOcr.parseMedicines(lines) to lines.size
             }
-            _state.value = _state.value.copy(extracting = false, draftMedicines = drafts)
+            outcome.fold(
+                onSuccess = { (medicines, lineCount) ->
+                    val drafts = medicines.mapIndexed { index, m ->
+                        DraftMedicine(
+                            id = "draft_${System.currentTimeMillis()}_$index",
+                            name = m.name,
+                            dose = m.dose,
+                            frequency = m.frequency,
+                        )
+                    }
+                    _state.value = _state.value.copy(
+                        extracting = false,
+                        draftMedicines = drafts.ifEmpty {
+                            listOf(DraftMedicine(id = "draft_${System.currentTimeMillis()}", name = "", dose = "", frequency = ""))
+                        },
+                        extractionNote = when {
+                            lineCount == 0 -> "No text found in that image. Try a sharper, well-lit photo."
+                            drafts.isEmpty() -> "Read $lineCount lines but found no medicine lines. Add them manually."
+                            else -> "Read $lineCount lines, found ${drafts.size} medicine(s). Check each one."
+                        },
+                    )
+                },
+                onFailure = { e ->
+                    _state.value = _state.value.copy(
+                        extracting = false,
+                        draftMedicines = listOf(DraftMedicine(id = "draft_${System.currentTimeMillis()}", name = "", dose = "", frequency = "")),
+                        extractionNote = e.message ?: "Could not read that image",
+                    )
+                },
+            )
         }
     }
 
@@ -267,22 +427,52 @@ class PatientViewModel @Inject constructor(
             weightKg = weightKg,
             medicalConditions = conditions,
         )
+        persistProfile()
         sessionManager.completeOnboarding()
+    }
+
+    fun loadTickets() {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(ticketsLoading = true)
+            when (val r = getUserTickets(patientId)) {
+                is Result.Success -> _state.value = _state.value.copy(tickets = r.data, ticketsLoading = false)
+                is Result.Error -> _state.value = _state.value.copy(message = r.message, ticketsLoading = false)
+            }
+        }
+    }
+
+    fun raiseTicket(subject: String, detail: String) {
+        if (_state.value.raisingTicket || subject.isBlank() || detail.isBlank()) return
+        viewModelScope.launch {
+            _state.value = _state.value.copy(raisingTicket = true, ticketMessage = null)
+            when (val r = raiseTicketUseCase(patientId, subject, detail)) {
+                is Result.Success -> _state.value = _state.value.copy(
+                    raisingTicket = false,
+                    tickets = listOf(r.data) + _state.value.tickets,
+                    ticketMessage = "Ticket raised · our team will get back to you",
+                )
+                is Result.Error -> _state.value = _state.value.copy(raisingTicket = false, ticketMessage = r.message)
+            }
+        }
     }
 
     fun updateMedicalConditions(conditions: Set<String>) {
         _state.value = _state.value.copy(medicalConditions = conditions)
+        persistProfile()
     }
 
     fun toggleAbha() {
         _state.value = _state.value.copy(abhaConnected = !_state.value.abhaConnected)
+        persistProfile()
     }
 
     fun toggleInsurance() {
         _state.value = _state.value.copy(insuranceConnected = !_state.value.insuranceConnected)
+        persistProfile()
     }
 
-    fun toggleFingerprintLock() {
-        _state.value = _state.value.copy(fingerprintLockEnabled = !_state.value.fingerprintLockEnabled)
+    fun setFingerprintLock(enabled: Boolean) {
+        securityPrefs.setLockEnabled(enabled)
+        _state.value = _state.value.copy(fingerprintLockEnabled = enabled)
     }
 }

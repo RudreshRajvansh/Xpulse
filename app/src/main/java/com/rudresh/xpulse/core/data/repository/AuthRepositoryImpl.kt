@@ -17,11 +17,25 @@ class AuthRepositoryImpl @Inject constructor(
             Result.Error(e.message ?: "Login failed", e)
         }
 
-    override suspend fun register(name: String, email: String, password: String): Result<User> =
+    override suspend fun register(name: String, email: String, phone: String, password: String): Result<User> =
         try {
-            Result.Success(remote.register(name, email, password))
+            Result.Success(remote.register(name, email, phone, password))
         } catch (e: Exception) {
             Result.Error(e.message ?: "Registration failed", e)
+        }
+
+    override suspend fun requestPasswordReset(email: String): Result<String> =
+        try {
+            Result.Success(remote.requestPasswordReset(email))
+        } catch (e: Exception) {
+            Result.Error(e.message ?: "Could not send reset code", e)
+        }
+
+    override suspend fun resetPassword(email: String, otp: String, newPassword: String): Result<Unit> =
+        try {
+            Result.Success(remote.resetPassword(email, otp, newPassword))
+        } catch (e: Exception) {
+            Result.Error(e.message ?: "Could not reset password", e)
         }
 
     override suspend fun logout() {

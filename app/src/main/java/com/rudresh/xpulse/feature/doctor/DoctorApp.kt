@@ -1,5 +1,6 @@
 package com.rudresh.xpulse.feature.doctor
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Medication
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -50,8 +52,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.rudresh.xpulse.core.domain.model.AccessGrant
+import com.rudresh.xpulse.core.domain.model.ScopedData
 import com.rudresh.xpulse.core.domain.model.User
 import com.rudresh.xpulse.ui.theme.SuccessGreen
+
+private val COMMON_TESTS = listOf("CBC", "HbA1c", "Lipid Profile", "Thyroid (TSH)", "Vitamin D", "Liver Function")
 
 @Composable
 fun DoctorApp(
@@ -76,7 +81,12 @@ fun DoctorApp(
         Spacer(Modifier.height(20.dp))
 
         if (state.scoped != null) {
-            PatientDetail(state = state, onBack = viewModel::closePatient, onIssue = viewModel::issuePrescription)
+            PatientDetail(
+                state = state,
+                onBack = viewModel::closePatient,
+                onIssue = viewModel::issuePrescription,
+                onOrderLab = viewModel::orderLabTest,
+            )
         } else {
             RequestList(state = state, onRefresh = viewModel::loadRequests, onOpen = viewModel::open)
         }
@@ -185,6 +195,7 @@ private fun PatientDetail(
     state: DoctorState,
     onBack: () -> Unit,
     onIssue: (name: String, dose: String, frequency: String) -> Unit,
+    onOrderLab: (String) -> Unit,
 ) {
     val scoped = state.scoped ?: return
     LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -195,6 +206,7 @@ private fun PatientDetail(
                 }
                 Text(scoped.patientName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
+            PatientVitalsRow(scoped)
             Spacer(Modifier.height(16.dp))
             Text("Medicines", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(8.dp))
@@ -242,8 +254,175 @@ private fun PatientDetail(
                     }
                 }
             }
+            if (scoped.labOrders.isNotEmpty()) {
+                Spacer(Modifier.height(24.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Science, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Lab results", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.height(8.dp))
+                scoped.labOrders.forEach { order ->
+                    Card(
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text(order.testName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                order.resultSummary ?: "Awaiting result",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (order.resultSummary != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (scoped.reports.isNotEmpty()) {
+                Spacer(Modifier.height(24.dp))
+                Text("Uploaded reports", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(8.dp))
+                FlowRow {
+                    scoped.reports.forEach { report ->
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            shape = RoundedCornerShape(50),
+                            modifier = Modifier.padding(end = 8.dp, bottom = 8.dp),
+                        ) {
+                            Text(
+                                report.label,
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
             Spacer(Modifier.height(24.dp))
             IssuePrescriptionCard(issuing = state.issuing, message = state.issuedMessage, onIssue = onIssue)
+            Spacer(Modifier.height(16.dp))
+            OrderLabTestCard(ordering = state.orderingLab, message = state.labMessage, onOrder = onOrderLab)
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+@Composable
+private fun PatientVitalsRow(scoped: ScopedData) {
+    val profile = scoped.profile
+    val bmi = remember(profile.heightCm, profile.weightKg) {
+        val h = profile.heightCm.toFloatOrNull()?.div(100f)
+        val w = profile.weightKg.toFloatOrNull()
+        if (h != null && h > 0f && w != null) w / (h * h) else null
+    }
+    val chips = buildList {
+        if (profile.age.isNotBlank()) add("${profile.age} yrs")
+        if (profile.city.isNotBlank()) add(profile.city)
+        if (bmi != null) add("BMI %.1f".format(bmi))
+        addAll(profile.conditions)
+    }
+    if (chips.isEmpty()) return
+
+    Spacer(Modifier.height(10.dp))
+    FlowRow {
+        chips.forEach { chip ->
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                shape = RoundedCornerShape(50),
+                modifier = Modifier.padding(end = 8.dp, bottom = 8.dp),
+            ) {
+                Text(
+                    chip,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OrderLabTestCard(
+    ordering: Boolean,
+    message: String?,
+    onOrder: (String) -> Unit,
+) {
+    var testName by remember { mutableStateOf("") }
+
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Science, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text("Order lab test", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(14.dp))
+            FlowRow {
+                COMMON_TESTS.forEach { test ->
+                    Surface(
+                        color = if (testName == test) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        },
+                        shape = RoundedCornerShape(50),
+                        modifier = Modifier
+                            .padding(end = 8.dp, bottom = 8.dp)
+                            .clickable { testName = test },
+                    ) {
+                        Text(
+                            test,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = if (testName == test) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            OutlinedTextField(
+                value = testName,
+                onValueChange = { testName = it },
+                label = { Text("Test name") },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(14.dp))
+            Button(
+                onClick = {
+                    onOrder(testName)
+                    testName = ""
+                },
+                enabled = testName.isNotBlank() && !ordering,
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+            ) {
+                if (ordering) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                } else {
+                    Text("Send to diagnostics")
+                }
+            }
+            if (message != null) {
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = SuccessGreen, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
     }
 }

@@ -1,6 +1,6 @@
 package com.rudresh.xpulse.core.data.di
 
-import com.rudresh.xpulse.core.data.remote.FakeRemoteDataSource
+import com.rudresh.xpulse.core.data.remote.HttpRemoteDataSource
 import com.rudresh.xpulse.core.data.remote.RemoteDataSource
 import dagger.Binds
 import dagger.Module
@@ -14,5 +14,5 @@ abstract class DataSourceModule {
 
     @Binds
     @Singleton
-    abstract fun bindRemoteDataSource(impl: FakeRemoteDataSource): RemoteDataSource
+    abstract fun bindRemoteDataSource(impl: HttpRemoteDataSource): RemoteDataSource
 }

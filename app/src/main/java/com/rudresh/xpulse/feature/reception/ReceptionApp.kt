@@ -76,7 +76,7 @@ fun ReceptionApp(
             }
             Spacer(Modifier.height(20.dp))
 
-            QrDisplayCard(seed = user.id)
+            QrDisplayCard(seed = state.checkInCode.ifBlank { user.id }, code = state.checkInCode)
             Spacer(Modifier.height(20.dp))
         }
 
@@ -134,7 +134,7 @@ fun ReceptionApp(
 }
 
 @Composable
-private fun QrDisplayCard(seed: String) {
+private fun QrDisplayCard(seed: String, code: String) {
     val transition = rememberInfiniteTransition(label = "pulse")
     val alpha by transition.animateFloat(
         initialValue = 0.3f,
@@ -166,12 +166,27 @@ private fun QrDisplayCard(seed: String) {
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
             )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "This code refreshes automatically for security.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (code.isNotBlank()) {
+                Spacer(Modifier.height(12.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Text(
+                        code,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Patients without a camera can type this code instead.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

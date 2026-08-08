@@ -10,9 +10,16 @@ class AppointmentRepositoryImpl @Inject constructor(
     private val remote: RemoteDataSource,
 ) : AppointmentRepository {
 
-    override suspend fun checkIn(patientId: String): Result<Appointment> =
+    override suspend fun getReceptionToken(): Result<String> =
         try {
-            Result.Success(remote.checkIn(patientId))
+            Result.Success(remote.getReceptionToken())
+        } catch (e: Exception) {
+            Result.Error(e.message ?: "Could not load reception code", e)
+        }
+
+    override suspend fun checkIn(patientId: String, token: String): Result<Appointment> =
+        try {
+            Result.Success(remote.checkIn(patientId, token))
         } catch (e: Exception) {
             Result.Error(e.message ?: "Could not check in", e)
         }

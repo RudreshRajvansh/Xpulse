@@ -8,6 +8,6 @@ import javax.inject.Inject
 class CheckInUseCase @Inject constructor(
     private val appointmentRepository: AppointmentRepository,
 ) {
-    suspend operator fun invoke(patientId: String): Result<Appointment> =
-        appointmentRepository.checkIn(patientId)
+    suspend operator fun invoke(patientId: String, token: String): Result<Appointment> =
+        appointmentRepository.checkIn(patientId, token)
 }

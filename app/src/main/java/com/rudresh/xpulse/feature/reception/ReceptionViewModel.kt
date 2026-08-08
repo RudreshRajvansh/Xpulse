@@ -6,6 +6,7 @@ import com.rudresh.xpulse.core.common.Result
 import com.rudresh.xpulse.core.domain.model.Appointment
 import com.rudresh.xpulse.core.domain.usecase.AdmitUseCase
 import com.rudresh.xpulse.core.domain.usecase.GetQueueUseCase
+import com.rudresh.xpulse.core.domain.usecase.GetReceptionTokenUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,6 +18,7 @@ data class ReceptionState(
     val queue: List<Appointment> = emptyList(),
     val queueLoading: Boolean = false,
     val admittingId: String? = null,
+    val checkInCode: String = "",
     val error: String? = null,
 )
 
@@ -24,6 +26,7 @@ data class ReceptionState(
 class ReceptionViewModel @Inject constructor(
     private val getQueueUseCase: GetQueueUseCase,
     private val admitUseCase: AdmitUseCase,
+    private val getReceptionTokenUseCase: GetReceptionTokenUseCase,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ReceptionState())
@@ -31,6 +34,16 @@ class ReceptionViewModel @Inject constructor(
 
     init {
         loadQueue()
+        loadCheckInCode()
+    }
+
+    fun loadCheckInCode() {
+        viewModelScope.launch {
+            when (val r = getReceptionTokenUseCase()) {
+                is Result.Success -> _state.value = _state.value.copy(checkInCode = r.data)
+                is Result.Error -> _state.value = _state.value.copy(error = r.message)
+            }
+        }
     }
 
     fun loadQueue() {

@@ -5,5 +5,6 @@ data class User(
     val name: String,
     val email: String,
     val roles: Set<Role>,
-    val scopeId: String?
+    val scopeId: String?,
+    val phone: String? = null,
 )

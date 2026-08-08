@@ -1,10 +1,11 @@
 package com.rudresh.xpulse.feature.patient
 
+import android.Manifest
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
-import android.widget.Toast
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -43,6 +44,7 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.History
@@ -54,8 +56,10 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.VerifiedUser
@@ -96,7 +100,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.rudresh.xpulse.core.scanner.QrScanner
+import com.rudresh.xpulse.core.security.BiometricGate
+import com.rudresh.xpulse.core.domain.model.LabOrderStatus
+import com.rudresh.xpulse.core.domain.model.TicketStatus
 import com.rudresh.xpulse.core.domain.model.User
 import com.rudresh.xpulse.ui.theme.DangerRed
 import com.rudresh.xpulse.ui.theme.SuccessGreen
@@ -114,6 +123,19 @@ fun PatientApp(
 ) {
     val state by viewModel.state.collectAsState()
     var tab by remember { mutableStateOf(0) }
+
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) viewModel.scheduleReminderNotifications()
+    }
+
+    LaunchedEffect(state.reminders.isNotEmpty()) {
+        if (state.reminders.isEmpty()) return@LaunchedEffect
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            viewModel.scheduleReminderNotifications()
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -156,13 +178,16 @@ fun PatientApp(
                         onLogout = onLogout,
                         onToggleAbha = viewModel::toggleAbha,
                         onToggleInsurance = viewModel::toggleInsurance,
-                        onToggleFingerprintLock = viewModel::toggleFingerprintLock,
+                        onSetFingerprintLock = viewModel::setFingerprintLock,
                         onUpdateConditions = viewModel::updateMedicalConditions,
+                        onRaiseTicket = viewModel::raiseTicket,
+                        onAddReport = viewModel::addReport,
                     )
                     else -> ScanTab(
                         scanning = state.scanning,
                         checkedIn = state.checkedIn,
-                        onScan = viewModel::checkIn,
+                        error = state.checkInError,
+                        onCheckIn = viewModel::checkIn,
                         onDone = { viewModel.resetCheckIn(); tab = 0 },
                     )
                 }
@@ -190,7 +215,7 @@ fun PatientApp(
                 )
                 NavigationBarItem(
                     selected = tab == 3,
-                    onClick = { tab = 3; viewModel.loadAudit() },
+                    onClick = { tab = 3; viewModel.loadAudit(); viewModel.loadTickets(); viewModel.loadRecommendations() },
                     icon = { Icon(Icons.Filled.Person, contentDescription = null) },
                     label = { Text("Profile") },
                 )
@@ -211,6 +236,8 @@ fun PatientApp(
         }
     }
 }
+
+private val REPORT_CATEGORIES = listOf("Blood test", "X-ray", "MRI", "Prescription", "Discharge", "Other")
 
 private val HEALTH_QUOTES = listOf(
     "Small daily habits build lifelong health.",
@@ -498,13 +525,81 @@ private fun MedicinesTab(
         ) {
             SegmentButton("Medicines", section == 0, Modifier.weight(1f)) { section = 0 }
             SegmentButton("Diet", section == 1, Modifier.weight(1f)) { section = 1 }
+            SegmentButton("Reports", section == 2, Modifier.weight(1f)) { section = 2 }
         }
         Spacer(Modifier.height(16.dp))
 
-        if (section == 1) {
-            DietSection()
-        } else {
-            MedicinesSection(state, onImagePicked)
+        when (section) {
+            1 -> DietSection()
+            2 -> ReportsSection(state)
+            else -> MedicinesSection(state, onImagePicked)
+        }
+    }
+}
+
+@Composable
+private fun ReportsSection(state: PatientState) {
+    if (state.labOrdersLoading && state.labOrders.isEmpty()) {
+        CenteredSpinner()
+        return
+    }
+    if (state.labOrders.isEmpty()) {
+        EmptyState(Icons.Filled.Science, "No lab tests yet.")
+        return
+    }
+    LazyColumn {
+        items(state.labOrders) { order ->
+            val completed = order.status == LabOrderStatus.COMPLETED
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = CircleShape,
+                            color = if (completed) SuccessGreen.copy(alpha = 0.15f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            modifier = Modifier.size(40.dp),
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                Icon(
+                                    Icons.Filled.Science,
+                                    contentDescription = null,
+                                    tint = if (completed) SuccessGreen else MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                        Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
+                            Text(order.testName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                when (order.status) {
+                                    LabOrderStatus.ORDERED -> "Awaiting sample collection"
+                                    LabOrderStatus.SAMPLE_COLLECTED -> "Sample collected · processing"
+                                    LabOrderStatus.COMPLETED -> "Report ready"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    if (completed) {
+                        Spacer(Modifier.height(12.dp))
+                        Surface(
+                            color = SuccessGreen.copy(alpha = 0.08f),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                order.resultSummary.orEmpty(),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(12.dp),
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -678,11 +773,11 @@ private fun PrescriptionCaptureFlow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.width(10.dp))
-                    Text("AI is reading your prescription...", style = MaterialTheme.typography.bodyMedium)
+                    Text("Reading your prescription...", style = MaterialTheme.typography.bodyMedium)
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "MedGemma extracts medicines as an assistive draft — always verify before saving.",
+                    "On-device text recognition. Results are a draft — always verify before saving.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -693,7 +788,7 @@ private fun PrescriptionCaptureFlow(
                     Icon(Icons.Filled.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        "Review the extracted medicines below, edit anything that's wrong, then add them.",
+                        state.extractionNote ?: "Review the extracted medicines below, edit anything that's wrong, then add them.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -891,15 +986,22 @@ private fun ProfileTab(
     onLogout: () -> Unit,
     onToggleAbha: () -> Unit,
     onToggleInsurance: () -> Unit,
-    onToggleFingerprintLock: () -> Unit,
+    onSetFingerprintLock: (Boolean) -> Unit,
     onUpdateConditions: (Set<String>) -> Unit,
+    onRaiseTicket: (String, String) -> Unit,
+    onAddReport: (String, String, String) -> Unit,
 ) {
     val bmi = remember(state.heightCm, state.weightKg) {
         val h = state.heightCm.toFloatOrNull()?.div(100f)
         val w = state.weightKg.toFloatOrNull()
         if (h != null && h > 0f && w != null) w / (h * h) else null
     }
-    val pickReport = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) {}
+    val lockContext = LocalContext.current
+    val biometricAvailable = remember { BiometricGate.isAvailable(lockContext) }
+    var reportCategory by remember { mutableStateOf(REPORT_CATEGORIES.first()) }
+    val pickReport = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri?.let { onAddReport(reportCategory, "$reportCategory report", it.toString()) }
+    }
 
     LazyColumn(modifier = Modifier.padding(vertical = 20.dp)) {
         item {
@@ -985,23 +1087,66 @@ private fun ProfileTab(
         }
 
         item {
+            Text("Medical reports", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(10.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                REPORT_CATEGORIES.forEach { option ->
+                    FilterChip(
+                        selected = option == reportCategory,
+                        onClick = { reportCategory = option },
+                        label = { Text(option) },
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { pickReport.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+                    .clickable(enabled = !state.uploadingReport) {
+                        pickReport.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    }
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(14.dp))
                     .padding(14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Filled.UploadFile, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                if (state.uploadingReport) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                } else {
+                    Icon(Icons.Filled.UploadFile, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                }
                 Column(modifier = Modifier.padding(start = 10.dp).weight(1f)) {
-                    Text("Medical reports", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                    Text("Upload lab reports and scans by category", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Upload $reportCategory report", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text("Stored in your record and shared only with consent", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(10.dp))
         }
+        items(state.reports) { report ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f), modifier = Modifier.size(32.dp)) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        Icon(Icons.Filled.Description, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                    }
+                }
+                Column(modifier = Modifier.padding(start = 10.dp)) {
+                    Text(report.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        if (report.stored) {
+                            "${report.category} · ${report.fileBytes / 1024} KB stored"
+                        } else {
+                            "${report.category} · no file"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        item { Spacer(Modifier.height(20.dp)) }
 
         item {
             Text("Access control", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
@@ -1032,6 +1177,49 @@ private fun ProfileTab(
         }
 
         item {
+            Text("Help & support", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(10.dp))
+            RaiseTicketCard(
+                raising = state.raisingTicket,
+                message = state.ticketMessage,
+                onRaise = onRaiseTicket,
+            )
+            Spacer(Modifier.height(10.dp))
+        }
+        items(state.tickets) { ticket ->
+            val resolved = ticket.status == TicketStatus.RESOLVED
+            Card(
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Filled.SupportAgent,
+                            contentDescription = null,
+                            tint = if (resolved) SuccessGreen else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(ticket.subject, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        Text(
+                            if (resolved) "Resolved" else "Open",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (resolved) SuccessGreen else MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    if (resolved) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(ticket.resolution.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        item { Spacer(Modifier.height(20.dp)) }
+
+        item {
             Text("Settings", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(10.dp))
             Row(
@@ -1042,36 +1230,154 @@ private fun ProfileTab(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Fingerprint, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.width(10.dp))
-                    Text("Fingerprint lock", style = MaterialTheme.typography.bodyMedium)
+                    Column {
+                        Text("Fingerprint lock", style = MaterialTheme.typography.bodyMedium)
+                        if (!biometricAvailable) {
+                            Text(
+                                BiometricGate.unavailableReason(lockContext),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                 }
-                Switch(checked = state.fingerprintLockEnabled, onCheckedChange = { onToggleFingerprintLock() })
+                Switch(
+                    checked = state.fingerprintLockEnabled,
+                    enabled = biometricAvailable,
+                    onCheckedChange = { wantsOn ->
+                        val host = lockContext as? FragmentActivity ?: return@Switch
+                        if (!wantsOn) {
+                            onSetFingerprintLock(false)
+                            return@Switch
+                        }
+                        BiometricGate.authenticate(
+                            activity = host,
+                            title = "Enable app lock",
+                            subtitle = "Confirm it's you",
+                            onSuccess = { onSetFingerprintLock(true) },
+                            onFailure = {},
+                        )
+                    },
+                )
             }
             Spacer(Modifier.height(20.dp))
         }
 
         item {
-            val context = LocalContext.current
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Care suggestions", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Generated from your conditions, BMI, medicines and lab results. Not a diagnosis.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(10.dp))
+            if (state.recommendationsLoading && state.recommendations.isEmpty()) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+            }
+        }
+        items(state.recommendations) { rec ->
+            val accent = when (rec.urgency) {
+                "ACTION" -> MaterialTheme.colorScheme.error
+                "ROUTINE" -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
             Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.1f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { Toast.makeText(context, "Coming soon", Toast.LENGTH_SHORT).show() },
+                shape = RoundedCornerShape(14.dp),
+                colors = CardDefaults.cardColors(containerColor = accent.copy(alpha = 0.08f)),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
             ) {
-                Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
-                    Column(modifier = Modifier.padding(start = 10.dp)) {
-                        Text("AI Doctor Recommendations", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                        Text("Powered by MedGemma", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(rec.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        Surface(color = accent.copy(alpha = 0.15f), shape = RoundedCornerShape(50)) {
+                            Text(
+                                rec.specialty,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = accent,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            )
+                        }
                     }
+                    Spacer(Modifier.height(6.dp))
+                    Text(rec.reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+        }
+        item {
             Spacer(Modifier.height(24.dp))
             OutlinedButton(
                 onClick = onLogout,
                 shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth().height(50.dp),
             ) { Text("Log out", color = MaterialTheme.colorScheme.error) }
+        }
+    }
+}
+
+@Composable
+private fun RaiseTicketCard(
+    raising: Boolean,
+    message: String?,
+    onRaise: (String, String) -> Unit,
+) {
+    var subject by remember { mutableStateOf("") }
+    var detail by remember { mutableStateOf("") }
+
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.SupportAgent, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(8.dp))
+                Text("Contact support", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = subject,
+                onValueChange = { subject = it },
+                label = { Text("Subject") },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = detail,
+                onValueChange = { detail = it },
+                label = { Text("What went wrong?") },
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = {
+                    onRaise(subject, detail)
+                    subject = ""
+                    detail = ""
+                },
+                enabled = subject.isNotBlank() && detail.isNotBlank() && !raising,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (raising) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                } else {
+                    Text("Raise ticket")
+                }
+            }
+            if (message != null) {
+                Spacer(Modifier.height(10.dp))
+                Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
@@ -1121,32 +1427,37 @@ private fun StatusPill(text: String, background: androidx.compose.ui.graphics.Co
 private fun ScanTab(
     scanning: Boolean,
     checkedIn: Boolean,
-    onScan: () -> Unit,
+    error: String?,
+    onCheckIn: (String) -> Unit,
     onDone: () -> Unit,
 ) {
-    LaunchedEffect(checkedIn) {
-        if (!checkedIn) onScan()
-    }
+    var code by remember { mutableStateOf("") }
+    var scanError by remember { mutableStateOf<String?>(null) }
+    val scanContext = LocalContext.current
 
     Column(
         modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
-            if (checkedIn) "You're checked in" else "Point at the reception QR",
+            if (checkedIn) "You're checked in" else "Check in at reception",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            if (checkedIn) "The front desk has been notified." else "Hold steady while we scan the code.",
+            if (checkedIn) {
+                "The front desk has been notified."
+            } else {
+                "Enter the 6-digit code shown on the reception screen."
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(24.dp))
         Box(
             modifier = Modifier
-                .size(220.dp)
+                .size(200.dp)
                 .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.06f), RoundedCornerShape(20.dp))
                 .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), RoundedCornerShape(20.dp)),
             contentAlignment = Alignment.Center,
@@ -1154,10 +1465,16 @@ private fun ScanTab(
             when {
                 checkedIn -> Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = SuccessGreen, modifier = Modifier.size(72.dp))
                 scanning -> ScanLine()
-                else -> CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                else -> Icon(
+                    Icons.Filled.QrCodeScanner,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                    modifier = Modifier.size(72.dp),
+                )
             }
         }
         Spacer(Modifier.height(24.dp))
+
         if (checkedIn) {
             Button(
                 onClick = onDone,
@@ -1165,6 +1482,62 @@ private fun ScanTab(
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                 modifier = Modifier.fillMaxWidth().height(50.dp),
             ) { Text("Done") }
+            return@Column
+        }
+
+        Button(
+            onClick = {
+                scanError = null
+                QrScanner.scan(
+                    context = scanContext,
+                    onResult = { value ->
+                        code = value.filter { it.isDigit() }.take(6)
+                        onCheckIn(code)
+                    },
+                    onError = { scanError = it },
+                )
+            },
+            enabled = !scanning,
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) {
+            if (scanning) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+            } else {
+                Icon(Icons.Filled.QrCodeScanner, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Scan reception QR")
+            }
+        }
+
+        Spacer(Modifier.height(18.dp))
+        Text(
+            "or enter the code manually",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = code,
+            onValueChange = { input -> code = input.filter { it.isDigit() }.take(6) },
+            label = { Text("Reception code") },
+            singleLine = true,
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedButton(
+            onClick = { onCheckIn(code) },
+            enabled = !scanning && code.length == 6,
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+        ) { Text("Check in with code") }
+
+        val shownError = error ?: scanError
+        if (shownError != null) {
+            Spacer(Modifier.height(14.dp))
+            Text(shownError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
