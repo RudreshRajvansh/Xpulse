@@ -94,6 +94,8 @@ data class PatientState(
 
 private val REMINDER_OFFSETS_MINUTES = listOf(-190L, -55L, 20L, 95L, 240L, 400L)
 
+private const val GRANT_DURATION_MS = 15 * 60 * 1000L
+
 @HiltViewModel
 class PatientViewModel @Inject constructor(
     private val getMedicines: GetMedicinesUseCase,
@@ -279,12 +281,12 @@ class PatientViewModel @Inject constructor(
         _state.value = _state.value.copy(waterGlasses = next)
     }
 
-    fun grant() {
-        if (_state.value.grantBusy) return
+    fun grant(scope: Set<String>) {
+        if (_state.value.grantBusy || scope.isEmpty()) return
         viewModelScope.launch {
             _state.value = _state.value.copy(grantBusy = true)
-            val expiresAt = System.currentTimeMillis() + 120_000
-            when (val r = grantAccess(patientId, "u_doctor", setOf("Medicines", "Allergies"), expiresAt)) {
+            val expiresAt = System.currentTimeMillis() + GRANT_DURATION_MS
+            when (val r = grantAccess(patientId, "u_doctor", scope, expiresAt)) {
                 is Result.Success -> _state.value = _state.value.copy(grantId = r.data.id, grantRevoked = false, message = "Access granted", grantBusy = false)
                 is Result.Error -> _state.value = _state.value.copy(message = r.message, grantBusy = false)
             }

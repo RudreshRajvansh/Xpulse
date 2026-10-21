@@ -24,7 +24,7 @@ class AuthRepositoryImpl @Inject constructor(
             Result.Error(e.message ?: "Registration failed", e)
         }
 
-    override suspend fun requestPasswordReset(email: String): Result<String> =
+    override suspend fun requestPasswordReset(email: String): Result<Unit> =
         try {
             Result.Success(remote.requestPasswordReset(email))
         } catch (e: Exception) {

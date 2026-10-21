@@ -28,7 +28,6 @@ data class ResetState(
     val active: Boolean = false,
     val step: Int = 0,
     val email: String = "",
-    val sentCode: String? = null,
     val busy: Boolean = false,
     val error: String? = null,
 )
@@ -174,7 +173,7 @@ class LoginViewModel @Inject constructor(
         viewModelScope.launch {
             _resetState.value = _resetState.value.copy(busy = true, error = null)
             when (val r = requestPasswordResetUseCase(email)) {
-                is Result.Success -> _resetState.value = _resetState.value.copy(busy = false, step = 1, sentCode = r.data)
+                is Result.Success -> _resetState.value = _resetState.value.copy(busy = false, step = 1)
                 is Result.Error -> _resetState.value = _resetState.value.copy(busy = false, error = r.message)
             }
         }

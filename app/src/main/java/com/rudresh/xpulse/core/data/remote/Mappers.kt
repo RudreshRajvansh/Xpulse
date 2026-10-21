@@ -76,6 +76,7 @@ fun JSONObject.toAccessGrant(): AccessGrant = AccessGrant(
 fun JSONObject.toAuditEntry(): AuditEntry = AuditEntry(
     id = getString("id"),
     actor = optString("actor"),
+    actorName = optString("actorName"),
     action = optString("action"),
     subjectId = optString("subjectId"),
     timestamp = optLong("timestamp"),
@@ -146,6 +147,7 @@ fun PatientProfile.toJson(): JSONObject = JSONObject()
 
 fun JSONObject.toScopedData(): ScopedData = ScopedData(
     patientName = optString("patientName"),
+    scope = optJSONArray("scope")?.toStringList().orEmpty(),
     medicines = optJSONArray("medicines")?.map { it.toMedicine() }.orEmpty(),
     allergies = optJSONArray("allergies")?.toStringList().orEmpty(),
     profile = optJSONObject("profile")?.toPatientProfile() ?: PatientProfile(),

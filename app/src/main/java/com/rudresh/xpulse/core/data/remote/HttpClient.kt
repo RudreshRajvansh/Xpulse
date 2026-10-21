@@ -1,5 +1,6 @@
 package com.rudresh.xpulse.core.data.remote
 
+import com.rudresh.xpulse.core.session.SessionManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -13,6 +14,7 @@ import javax.inject.Singleton
 @Singleton
 class HttpClient @Inject constructor(
     private val serverConfig: ServerConfig,
+    private val sessionManager: SessionManager,
 ) {
 
     @Volatile
@@ -24,12 +26,23 @@ class HttpClient @Inject constructor(
         JSONObject(request("GET", "/health", null)).optString("status") == "ok"
     }.getOrDefault(false)
 
+    @Synchronized
     fun setToken(value: String) {
         token = value
     }
 
-    fun clearToken() {
+    suspend fun revokeSession() {
+        val current = token
+        if (current.isEmpty()) return
+        runCatching { request("POST", "/auth/logout", "{}", current) }
+        clearTokenIf(current)
+    }
+
+    @Synchronized
+    private fun clearTokenIf(expected: String): Boolean {
+        if (token != expected) return false
         token = ""
+        return true
     }
 
     suspend fun getObject(path: String): JSONObject = JSONObject(request("GET", path, null))
@@ -47,15 +60,15 @@ class HttpClient @Inject constructor(
 
     suspend fun deleteObject(path: String): JSONObject = JSONObject(request("DELETE", path, null))
 
-    private suspend fun request(method: String, path: String, body: String?): String =
+    private suspend fun request(method: String, path: String, body: String?, bearer: String = token): String =
         withContext(Dispatchers.IO) {
             val connection = (URL("${serverConfig.baseUrl}$path").openConnection() as HttpURLConnection).apply {
                 requestMethod = method
                 connectTimeout = 15_000
                 readTimeout = 70_000
                 setRequestProperty("Accept", "application/json")
-                if (token.isNotEmpty()) {
-                    setRequestProperty("Authorization", "Bearer $token")
+                if (bearer.isNotEmpty()) {
+                    setRequestProperty("Authorization", "Bearer $bearer")
                 }
                 if (body != null) {
                     doOutput = true
@@ -71,6 +84,9 @@ class HttpClient @Inject constructor(
                     connection.inputStream.bufferedReader().use { it.readText() }
                 } else {
                     val raw = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                    if (code == HttpURLConnection.HTTP_UNAUTHORIZED && !path.startsWith("/auth/") && bearer.isNotEmpty()) {
+                        if (clearTokenIf(bearer)) sessionManager.endSession()
+                    }
                     throw IOException(errorMessage(raw, code))
                 }
             } catch (e: IOException) {

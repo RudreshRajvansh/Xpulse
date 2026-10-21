@@ -43,8 +43,9 @@ class HttpRemoteDataSource @Inject constructor(
         return response.getJSONObject("user").toUser()
     }
 
-    override suspend fun requestPasswordReset(email: String): String =
-        http.postObject("/auth/password/request", JSONObject().put("email", email)).getString("code")
+    override suspend fun requestPasswordReset(email: String) {
+        http.postObject("/auth/password/request", JSONObject().put("email", email))
+    }
 
     override suspend fun resetPassword(email: String, otp: String, newPassword: String) {
         val body = JSONObject()
@@ -55,8 +56,7 @@ class HttpRemoteDataSource @Inject constructor(
     }
 
     override suspend fun logout() {
-        runCatching { http.postObject("/auth/logout") }
-        http.clearToken()
+        http.revokeSession()
     }
 
     override suspend fun getMedicines(patientId: String): List<Medicine> =

@@ -17,6 +17,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -236,6 +238,16 @@ fun PatientApp(
         }
     }
 }
+
+private val SHARE_SCOPES = listOf(
+    "Medicines" to "Medicines",
+    "Allergies" to "Allergies",
+    "LabResults" to "Lab results",
+    "Profile" to "Vitals & history",
+    "Reports" to "Reports",
+)
+
+private val DEFAULT_SHARE_SCOPE = setOf("Medicines", "Allergies", "LabResults")
 
 private val REPORT_CATEGORIES = listOf("Blood test", "X-ray", "MRI", "Prescription", "Discharge", "Other")
 
@@ -909,21 +921,36 @@ private fun PickedImagePreview(uriString: String) {
 @Composable
 private fun ShareTab(
     state: PatientState,
-    onGrant: () -> Unit,
+    onGrant: (Set<String>) -> Unit,
     onRevoke: () -> Unit,
 ) {
     val gid = state.grantId
     val msg = state.message
-    Column(modifier = Modifier.padding(vertical = 20.dp)) {
+    var scope by remember { mutableStateOf(DEFAULT_SHARE_SCOPE) }
+    Column(
+        modifier = Modifier
+            .verticalScroll(rememberScrollState())
+            .padding(vertical = 20.dp),
+    ) {
         Text(
-            "Grant Dr. Mehta temporary access to your medicines and allergies. They'll see the request instantly in their app.",
+            "Choose what Dr. Mehta can see. Access ends after 15 minutes, or the moment you revoke it.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Spacer(Modifier.height(14.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            SHARE_SCOPES.forEach { (key, label) ->
+                FilterChip(
+                    selected = key in scope,
+                    onClick = { scope = if (key in scope) scope - key else scope + key },
+                    label = { Text(label) },
+                )
+            }
+        }
         Spacer(Modifier.height(16.dp))
         Button(
-            onClick = onGrant,
-            enabled = !state.grantBusy,
+            onClick = { onGrant(scope) },
+            enabled = !state.grantBusy && scope.isNotEmpty(),
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
             modifier = Modifier.fillMaxWidth().height(50.dp),
@@ -931,7 +958,7 @@ private fun ShareTab(
             if (state.grantBusy && gid == null) {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
             } else {
-                Text("Grant access · 2 min")
+                Text("Grant access · 15 min")
             }
         }
 
@@ -1168,7 +1195,7 @@ private fun ProfileTab(
                         }
                     }
                     Column(modifier = Modifier.padding(start = 10.dp)) {
-                        Text(e.actor, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Text(e.actorName.ifBlank { e.actor }, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                         Text(e.action, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }

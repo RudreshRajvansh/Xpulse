@@ -74,8 +74,8 @@ fun LoginScreen(viewModel: LoginViewModel = hiltViewModel()) {
 
     var name by remember { mutableStateOf("") }
     var phone by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("patient@xpulse.in") }
-    var password by remember { mutableStateOf("password") }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var acceptedTerms by remember { mutableStateOf(false) }
     var showPassword by remember { mutableStateOf(false) }
@@ -441,26 +441,10 @@ private fun ResetPasswordFlow(
             }
         } else {
             Text(
-                "We sent a 6-digit code to ${state.email}.",
+                "If an account exists for ${state.email}, we've sent it a 6-digit code. It expires in 10 minutes.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (state.sentCode != null) {
-                Spacer(Modifier.height(10.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
-                        .padding(12.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        "Demo build · your code is ${state.sentCode}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
             Spacer(Modifier.height(16.dp))
             AuthField(
                 value = otp,

@@ -56,6 +56,14 @@ import com.rudresh.xpulse.core.domain.model.ScopedData
 import com.rudresh.xpulse.core.domain.model.User
 import com.rudresh.xpulse.ui.theme.SuccessGreen
 
+private val SCOPE_LABELS = mapOf(
+    "Medicines" to "medicines",
+    "Allergies" to "allergies",
+    "LabResults" to "lab results",
+    "Profile" to "vitals & history",
+    "Reports" to "reports",
+)
+
 private val COMMON_TESTS = listOf("CBC", "HbA1c", "Lipid Profile", "Thyroid (TSH)", "Vitamin D", "Liver Function")
 
 @Composable
@@ -170,7 +178,11 @@ private fun RequestList(
                     }
                     Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
                         Text("Patient request", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                        Text(grant.scope.joinToString(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            grant.scope.joinToString { SCOPE_LABELS[it] ?: it }.replaceFirstChar { it.uppercase() },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                     Button(
                         onClick = { onOpen(grant) },
@@ -198,6 +210,7 @@ private fun PatientDetail(
     onOrderLab: (String) -> Unit,
 ) {
     val scoped = state.scoped ?: return
+    val shared = scoped.scope.toSet()
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -207,9 +220,18 @@ private fun PatientDetail(
                 Text(scoped.patientName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
             PatientVitalsRow(scoped)
+            if (shared.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Shared with you: " + scoped.scope.joinToString { SCOPE_LABELS[it] ?: it },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(Modifier.height(16.dp))
             Text("Medicines", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(8.dp))
+            if ("Medicines" !in shared) NotShared()
         }
         items(scoped.medicines) { m ->
             Card(
@@ -238,6 +260,7 @@ private fun PatientDetail(
                 Text("Allergies", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
             Spacer(Modifier.height(8.dp))
+            if ("Allergies" !in shared) NotShared()
             FlowRow {
                 scoped.allergies.forEach { a ->
                     Surface(
@@ -309,6 +332,15 @@ private fun PatientDetail(
             Spacer(Modifier.height(24.dp))
         }
     }
+}
+
+@Composable
+private fun NotShared() {
+    Text(
+        "Not shared by the patient",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable

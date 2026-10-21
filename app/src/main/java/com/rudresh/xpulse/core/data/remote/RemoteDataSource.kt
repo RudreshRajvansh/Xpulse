@@ -18,7 +18,7 @@ import com.rudresh.xpulse.core.domain.model.User
 interface RemoteDataSource {
     suspend fun login(email: String, password: String): User
     suspend fun register(name: String, email: String, phone: String, password: String): User
-    suspend fun requestPasswordReset(email: String): String
+    suspend fun requestPasswordReset(email: String)
     suspend fun resetPassword(email: String, otp: String, newPassword: String)
     suspend fun logout()
     suspend fun getMedicines(patientId: String): List<Medicine>
