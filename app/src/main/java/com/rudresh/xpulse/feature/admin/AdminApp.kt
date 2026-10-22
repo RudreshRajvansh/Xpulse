@@ -61,6 +61,12 @@ private val CREATABLE_ROLES = listOf(
     Role.CUSTOMER_CARE,
 )
 
+private fun defaultScopeFor(role: Role): String = when (role) {
+    Role.ADMIN -> "area_1"
+    Role.CUSTOMER_CARE -> ""
+    else -> "fac_1"
+}
+
 @Composable
 fun AdminApp(
     user: User,
@@ -263,6 +269,7 @@ private fun CreateStaffCard(
                             .padding(end = 8.dp, bottom = 8.dp)
                             .clickable {
                                 role = option
+                                scopeId = defaultScopeFor(option)
                                 onClearMessage()
                             },
                     ) {
@@ -304,20 +311,22 @@ private fun CreateStaffCard(
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.width(10.dp))
-                OutlinedTextField(
-                    value = scopeId,
-                    onValueChange = { scopeId = it },
-                    label = { Text("Facility") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.weight(1f),
-                )
+                if (role != Role.CUSTOMER_CARE) {
+                    Spacer(Modifier.width(10.dp))
+                    OutlinedTextField(
+                        value = scopeId,
+                        onValueChange = { scopeId = it },
+                        label = { Text(if (role == Role.ADMIN) "Area" else "Facility") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
             Spacer(Modifier.height(14.dp))
             Button(
                 onClick = {
-                    onCreate(name, email, password, role, scopeId.ifBlank { null })
+                    onCreate(name, email, password, role, scopeId.trim().ifBlank { null })
                     name = ""
                     email = ""
                     password = ""

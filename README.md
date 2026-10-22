@@ -1,9 +1,11 @@
 # XPulse
 
-Android app for XPulse, a consent-first personal health record built on ABDM rails.
+Android app for XPulse, a personal health record built on ABDM where patients decide who can see their data.
 
-Kotlin and Jetpack Compose with Hilt, following a clean domain / data / presentation split. Covers eight roles — patient, doctor, receptionist, pharmacy, diagnostics, admin, super admin and customer care — with time-bound consent sharing, medicine reminders, on-device prescription OCR and QR check-in.
+It's Kotlin with Jetpack Compose and Hilt, split into domain, data and presentation layers. One app covers eight roles: patient, doctor, receptionist, pharmacy, diagnostics, admin, super admin and customer care. Patients can share chosen parts of their record with a doctor for a limited time, get medicine reminders, read paper prescriptions with on-device OCR, and check in at a clinic by scanning the reception QR.
 
-Talks to the [XPulse backend](https://github.com/RudreshRajvansh/Xpulse-Backend). The server address is editable from the login screen, so no rebuild is needed to repoint it.
+Staff only see their own facility's queue, and area admins only see their area. The server enforces that; the app just shows what it gets back. The full rules are in the backend README.
 
-Open in Android Studio and run, or `./gradlew assembleDebug`.
+It talks to the [XPulse backend](https://github.com/RudreshRajvansh/Xpulse-Backend). You can change the server address from the login screen without rebuilding.
+
+Open the project in Android Studio and run it, or build with `./gradlew assembleDebug`.
